@@ -1,9 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
-import { doc, getDoc, setDoc, serverTimestamp, collection, getDocs, updateDoc } from "firebase/firestore";
+import { 
+  doc, 
+  getDoc, 
+  setDoc, 
+  serverTimestamp, 
+  collection, 
+  getDocs, 
+  updateDoc, 
+  onSnapshot // 1. Import onSnapshot
+} from "firebase/firestore";
 import { db } from "../firebase.config";
 import { useNavigate, useLocation } from "react-router-dom";
-
 
 const Profile: React.FC = () => {
   const { user } = useAuth();
@@ -12,37 +20,28 @@ const Profile: React.FC = () => {
   const locationState = location.state as { defaultTab?: string };
   const initialTab = locationState?.defaultTab || "profile";
   const [activeTab, setActiveTab] = useState(initialTab);
+  
   const [originalProfile, setOriginalProfile] = useState({
-    name: "",
-    email: "",
-    address: "",
-    course: "",
-    phone: "",
-    role: "",
-    city: "",
-    postcode: "",
-    state: "",
+    name: "", email: "", address: "", course: "", phone: "", 
+    role: "", city: "", postcode: "", state: "",
   });
   const [profile, setProfile] = useState({
-    name: "",
-    email: "",
-    address: "",
-    course: "",
-    phone: "",
-    role: "",
-    city: "Gelugor",
-    postcode: "07708",
-    state: "Penang",
+    name: "", email: "", address: "", course: "", phone: "", 
+    role: "", city: "Gelugor", postcode: "07708", state: "Penang",
   });
+  
   const [isEditing, setIsEditing] = useState(false);
   const [listedItems, setListedItems] = useState<any[]>([]);
   const [applications, setApplications] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
+  
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [loadingApplications, setLoadingApplications] = useState(true);
   const [loadingItems, setLoadingItems] = useState(true);
   const [loadingOrders, setLoadingOrders] = useState(true);
   const [trackingInputs, setTrackingInputs] = useState<{ [orderId: string]: string }>({});
+  const [sellerOrders, setSellerOrders] = useState<any[]>([]);
+  const [loadingSellerOrders, setLoadingSellerOrders] = useState(true);
 
   const malaysianStates = [
     "Johor","Kedah","Kelantan","Kuala Lumpur","Labuan","Malacca",
@@ -53,37 +52,31 @@ const Profile: React.FC = () => {
   const handleEditItem = (id: string) => {
     const item = listedItems.find(i => i.id === id);
     if (item) {
-      navigate(`/edit-listing/${item.id}`, {
-  state: { item }
-});
+      navigate(`/edit-listing/${item.id}`, { state: { item } });
     } else {
       alert("Item data not found");
     }
   };
 
   const handleDeleteItem = async (id: string) => {
-  if (!window.confirm("Are you sure you want to delete this item?")) return;
+    if (!window.confirm("Are you sure you want to delete this item?")) return;
+    try {
+      await updateDoc(doc(db, "Items", id), {
+        deletedAt: serverTimestamp(),
+        sold: true,
+      });
+      // No need to manually filter setListedItems, onSnapshot will handle it
+      alert("Item deleted successfully.");
+    } catch (err) {
+      console.error("Error deleting item:", err);
+      alert("Failed to delete item.");
+    }
+  };
 
-  try {
-    await updateDoc(doc(db, "Items", id), {
-      deletedAt: serverTimestamp(),
-      sold: true,
-    });
-
-    setListedItems(prev => prev.filter(item => item.id !== id));
-    alert("Item deleted successfully.");
-  } catch (err) {
-    console.error("Error deleting item:", err);
-    alert("Failed to delete item.");
-  }
-};
-
-
-  // Fetch profile
+  // Fetch profile (Keep as getDoc since it rarely changes by others)
   useEffect(() => {
     const fetchProfile = async () => {
       if (!user) return;
-
       try {
         const docRef = doc(db, "users", user.uid);
         const docSnap = await getDoc(docRef);
@@ -125,8 +118,8 @@ const Profile: React.FC = () => {
         setLoadingProfile(false);
       }
     };
-fetchProfile();
-}, [user]);
+    fetchProfile();
+  }, [user]);
 
   // Fetch seller applications for Admin
   useEffect(() => {
@@ -135,7 +128,6 @@ fetchProfile();
         setLoadingApplications(false);
         return;
       }
-
       try {
         const snapshot = await getDocs(collection(db, "sellerApplications"));
         const apps = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
@@ -146,7 +138,6 @@ fetchProfile();
         setLoadingApplications(false);
       }
     };
-
     fetchApplications();
   }, [user, profile.role]);
 
@@ -173,30 +164,18 @@ fetchProfile();
     }
   };
 
-  const handleUpdateTracking = async (
-    orderId: string,
-    trackingNumber: string
-  ) => {
+  const handleUpdateTracking = async (orderId: string, trackingNumber: string) => {
     if (!trackingNumber.trim()) {
       alert("Please enter tracking number");
       return;
     }
-
     try {
       await updateDoc(doc(db, "Orders", orderId), {
         trackingNumber,
         status: "Shipping",
         updatedAt: serverTimestamp(),
       });
-
-      setSellerOrders(prev =>
-        prev.map(order =>
-          order.id === orderId
-            ? { ...order, trackingNumber, status: "Shipping" }
-            : order
-        )
-      );
-
+      // Removed manual state update here, onSnapshot will handle it
       alert("Tracking updated successfully");
     } catch (err) {
       console.error(err);
@@ -210,13 +189,7 @@ fetchProfile();
         status: "Delivered",
         updatedAt: serverTimestamp(),
       });
-
-      setSellerOrders(prev =>
-        prev.map(order =>
-          order.id === orderId ? { ...order, status: "Delivered" } : order
-        )
-      );
-
+      // Removed manual state update here, onSnapshot will handle it
       alert("Order marked as delivered!");
     } catch (err) {
       console.error(err);
@@ -224,16 +197,14 @@ fetchProfile();
     }
   };
 
+  // ✅ REAL-TIME LISTENER: Listed Items (Seller View)
   useEffect(() => {
-  const fetchListedItems = async () => {
     if (!user || !user.email) {
       setLoadingItems(false);
       return;
     }
 
-    try {
-      const snapshot = await getDocs(collection(db, "Items"));
-
+    const unsubscribe = onSnapshot(collection(db, "Items"), (snapshot) => {
       const items = snapshot.docs
         .map(docSnap => {
           const data = docSnap.data();
@@ -251,110 +222,104 @@ fetchProfile();
             listedAt: data.createdAt?.toDate?.() || null,
           };
         })
-        // ✅ FILTER BY EMAIL
         .filter(item => item.sellerEmail === user.email);
-
+      
       setListedItems(items);
-    } catch (err) {
-      console.error("Error fetching listed items:", err);
-    } finally {
       setLoadingItems(false);
-    }
-  };
+    }, (error) => {
+      console.error("Error listening to items:", error);
+      setLoadingItems(false);
+    });
 
-  fetchListedItems();
-}, [user]);
-
-
-  // Fetch orders
-  useEffect(() => {
-    const fetchOrders = async () => {
-      if (!user || !user.email) {
-        setLoadingOrders(false);
-        return;
-      }
-
-      try {
-        const snapshot = await getDocs(collection(db, "Orders"));
-
-        const myOrders = snapshot.docs
-          .map(docSnap => {
-            const data = docSnap.data();
-            return {
-              id: docSnap.id,
-              email: data.email,
-              date: data.createdAt?.toDate?.().toLocaleDateString() || "—",
-              status: data.status || "Processing",
-              tracking: data.trackingNumber || "Seller is preparing to ship your order",
-              total: data.totalAmount || 0,
-              items: data.items || [],
-            };
-          })
-          // ✅ ONLY filter you need
-          .filter(order => order.email === user.email);
-
-        setOrders(myOrders);
-      } catch (error) {
-        console.error("Error fetching orders:", error);
-      } finally {
-        setLoadingOrders(false);
-      }
-    };
-
-    fetchOrders();
+    // Cleanup listener on unmount
+    return () => unsubscribe();
   }, [user]);
 
-  const [sellerOrders, setSellerOrders] = useState<any[]>([]);
-  const [loadingSellerOrders, setLoadingSellerOrders] = useState(true);
-
-  // Fetch Order for Seller
+  // ✅ REAL-TIME LISTENER: Orders (Buyer View)
+  // This fixes your specific issue: Buyer will see tracking updates immediately
   useEffect(() => {
-    const fetchSellerOrders = async () => {
-      if (!user || profile.role !== "Seller") {
-        setLoadingSellerOrders(false);
-        return;
-      }
+    if (!user || !user.email) {
+      setLoadingOrders(false);
+      return;
+    }
 
-      try {
-        const snapshot = await getDocs(collection(db, "Orders"));
+    const unsubscribe = onSnapshot(collection(db, "Orders"), (snapshot) => {
+      const myOrders = snapshot.docs
+        .map(docSnap => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            email: data.email,
+            date: data.createdAt?.toDate?.().toLocaleDateString() || "—",
+            status: data.status || "Processing",
+            tracking: data.trackingNumber || "Seller is preparing to ship your order",
+            total: data.totalAmount || 0,
+            items: data.items || [],
+          };
+        })
+        .filter(order => order.email === user.email);
 
-        const ordersForSeller = snapshot.docs
-          .map(docSnap => {
-            const data = docSnap.data();
-            return {
-              id: docSnap.id,
-              status: data.status || "Processing",
-              trackingNumber: data.trackingNumber || "",
-              items: data.items || [],
-              buyerEmail: data.email || "",
-              buyerAddress: data.address || "",
-              buyerPaymentMethod: data.payment || "",
-              buyerBank: data.bank || "", // if applicable
-              buyerShipping: data.shipping || "",
-            };
-          })
-          .filter(order =>
-            order.items.some((item: any) => item.sellerEmail === user.email)
-          );
+      setOrders(myOrders);
+      setLoadingOrders(false);
+    }, (error) => {
+      console.error("Error listening to orders:", error);
+      setLoadingOrders(false);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+
+  // ✅ REAL-TIME LISTENER: Seller Orders (Seller View)
+  useEffect(() => {
+    if (!user || profile.role !== "Seller") {
+      setLoadingSellerOrders(false);
+      return;
+    }
+
+    const unsubscribe = onSnapshot(collection(db, "Orders"), (snapshot) => {
+      const ordersForSeller = snapshot.docs
+        .map(docSnap => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            status: data.status || "Processing",
+            trackingNumber: data.trackingNumber || "",
+            items: data.items || [],
+            buyerEmail: data.email || "",
+            buyerAddress: data.address || "",
+            buyerPaymentMethod: data.payment || "",
+            buyerBank: data.bank || "",
+            buyerShipping: data.shipping || "",
+          };
+        })
+        .filter(order =>
+          order.items.some((item: any) => item.sellerEmail === user.email)
+        );
 
       setSellerOrders(ordersForSeller);
 
-      setTrackingInputs(
-        ordersForSeller.reduce((acc, order) => {
-          acc[order.id] = order.trackingNumber || "";
-          return acc;
-        }, {} as { [orderId: string]: string })
-      );
+      // Only set initial tracking inputs once to avoid overwriting typing
+      // or handle differently, but this is safe for viewing updates
+      setTrackingInputs(prev => {
+        const newInputs = { ...prev };
+        ordersForSeller.forEach(order => {
+          if (!newInputs[order.id]) {
+             newInputs[order.id] = order.trackingNumber || "";
+          }
+        });
+        return newInputs;
+      });
 
-      } catch (err) {
-        console.error("Error fetching seller orders:", err);
-      } finally {
-        setLoadingSellerOrders(false);
-      }
-    };
+      setLoadingSellerOrders(false);
+    }, (error) => {
+      console.error("Error listening to seller orders:", error);
+      setLoadingSellerOrders(false);
+    });
 
-    fetchSellerOrders();
+    return () => unsubscribe();
   }, [user, profile.role]);
+
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -372,9 +337,7 @@ fetchProfile();
       alert("All fields are required. Please fill in all information.");
       return;
     }
-
     if (!user) return;
-
     try {
       const docRef = doc(db, "users", user.uid);
       await setDoc(docRef, { ...profile, updatedAt: serverTimestamp() }, { merge: true });
@@ -705,59 +668,54 @@ fetchProfile();
                               "Campus Backpack"
                             ];
                             const hideDescription = hideDescriptionItems.includes(item.name);
-
                             const isStudentLaptop = item.name === "Student Laptop";
 
                             return (
-                              <div
-  key={item.id}
-  className="relative bg-white rounded-2xl shadow p-4 flex flex-col h-full min-h-[460px]"
->
-  {/* CONTENT */}
-  <div className="flex-grow">
-    <img
-      src={item.image}
-      alt={item.name}
-      className="w-full h-40 object-cover rounded-xl mb-4"
-    />
+                              <div key={item.id} className="relative bg-white rounded-2xl shadow p-4 flex flex-col h-full min-h-[460px]">
+                                {/* CONTENT */}
+                                <div className="flex-grow">
+                                  <img
+                                    src={item.image}
+                                    alt={item.name}
+                                    className="w-full h-40 object-cover rounded-xl mb-4"
+                                  />
 
-    <h3 className="font-semibold text-lg">{item.name}</h3>
+                                  <h3 className="font-semibold text-lg">{item.name}</h3>
 
-    {!hideDescription && (
-      <p className="text-gray-500 text-sm">{item.description}</p>
-    )}
+                                  {!hideDescription && (
+                                    <p className="text-gray-500 text-sm">{item.description}</p>
+                                  )}
 
-    <p className="text-sm text-gray-600 mt-1">
-      Category: <span className="font-medium">{item.category}</span>
-    </p>
+                                  <p className="text-sm text-gray-600 mt-1">
+                                    Category: <span className="font-medium">{item.category}</span>
+                                  </p>
 
-    <p className="text-sm text-gray-600 mt-1">
-      Condition: <span className="font-medium">{item.condition}/10</span>
-    </p>
+                                  <p className="text-sm text-gray-600 mt-1">
+                                    Condition: <span className="font-medium">{item.condition}/10</span>
+                                  </p>
 
-    <p className="mt-2 font-semibold">RM{item.price}</p>
-  </div>
+                                  <p className="mt-2 font-semibold">RM{item.price}</p>
+                                </div>
 
-  {/* BUTTONS (STICK TO BOTTOM) */}
-  {!isStudentLaptop && (
-    <div className="mt-4 flex gap-2">
-      <button
-        onClick={() => handleEditItem(item.id)}
-        className="flex-1 px-4 py-2 bg-[#5a19ad] text-white rounded-xl hover:bg-[#A087C7] transition font-semibold"
-      >
-        Edit
-      </button>
+                                {/* BUTTONS (STICK TO BOTTOM) */}
+                                {!isStudentLaptop && (
+                                  <div className="mt-4 flex gap-2">
+                                    <button
+                                      onClick={() => handleEditItem(item.id)}
+                                      className="flex-1 px-4 py-2 bg-[#5a19ad] text-white rounded-xl hover:bg-[#A087C7] transition font-semibold"
+                                    >
+                                      Edit
+                                    </button>
 
-      <button
-        onClick={() => handleDeleteItem(item.id)}
-        className="flex-1 px-4 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 transition font-semibold"
-      >
-        Delete
-      </button>
-    </div>
-  )}
-</div>
-
+                                    <button
+                                      onClick={() => handleDeleteItem(item.id)}
+                                      className="flex-1 px-4 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 transition font-semibold"
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
                             );
                           })
                         )}
