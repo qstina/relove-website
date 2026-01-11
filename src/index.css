@@ -1,0 +1,14 @@
+/* src/index.css */
+
+@import "tailwindcss";
+/* This replaces the old @tailwind base, @tailwind components, @tailwind utilities */
+
+@keyframes shine {
+  0% { text-shadow: 0 0 30px rgba(177,156,217,0.8); }
+  50% { text-shadow: 0 0 50px rgba(177,156,217,1), 0 0 70px rgba(177,156,217,0.6); }
+  100% { text-shadow: 0 0 30px rgba(177,156,217,0.8); }
+}
+
+.shine {
+  animation: shine 2s ease-in-out infinite;
+}
