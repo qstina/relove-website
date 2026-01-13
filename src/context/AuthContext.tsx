@@ -70,9 +70,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         deleteCookie("user_logged_in");
         deleteCookie("session_start_time");
 
-        signInAnonymously(auth).catch((error) => {
-          console.error("Anonymous sign-in failed:", error);
-        });
+        // signInAnonymously(auth).catch((error) => {
+        //   console.error("Anonymous sign-in failed:", error);
+        // });
         setUser(null);
       }
       setIsAuthReady(true);
