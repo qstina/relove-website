@@ -60,10 +60,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (currentUser) {
         setUser(currentUser);
 
-        // Setting session cookies
-        setCookie("session_active", "true", 1);
-        setCookie("user_logged_in", "true", 1);
-        setCookie("session_start_time", Date.now().toString(), 1);
+        // Only setting session cookies for logged in user, not anonymous guests
+        setCookie("session_active", "true", 1); // session exists for everyone
+
+        if (!currentUser.isAnonymous) {
+          setCookie("user_logged_in", "true", 1);
+          setCookie("session_start_time", Date.now().toString(), 1);
+        } else {
+          // Ensure guest cookies are removed
+          deleteCookie("user_logged_in");
+          deleteCookie("session_start_time");
+        }
       } else {
 
         // Clear login cookie (still keep guest session)
